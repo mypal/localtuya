@@ -55,6 +55,8 @@ def flow_schema(dps):
  
 class LocaltuyaClimate(LocalTuyaEntity, ClimateEntity):
     """Tuya climate device."""
+
+    _attr_translation_key = "localtuya"
  
     def __init__(
         self,
@@ -94,6 +96,16 @@ class LocaltuyaClimate(LocalTuyaEntity, ClimateEntity):
             if hvac_mode != HVACMode.OFF:
                 payload[str(IDX_MODE)] = ModeMap[hvac_mode]
 
+            # Update preset modes based on HVAC mode
+            if hvac_mode == HVACMode.HEAT:
+                self._attr_preset_modes = ["heat", "floor_heat", "heat_floorheat"]
+                # If current preset is not valid for HEAT mode, set to "heat_floorheat"
+                if self._attr_preset_mode not in ["heat", "floor_heat", "heat_floorheat"]:
+                    self._attr_preset_mode = "heat_floorheat"
+            else:
+                self._attr_preset_modes = ["none"]
+                self._attr_preset_mode = "none"
+
         await self._device.set_dps(payload)
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
@@ -103,6 +115,16 @@ class LocaltuyaClimate(LocalTuyaEntity, ClimateEntity):
         payload[str(IDX_SWITCH)] = hvac_mode != HVACMode.OFF
         if hvac_mode != HVACMode.OFF:
             payload[str(IDX_MODE)] = ModeMap[hvac_mode]
+
+        # Update preset modes based on HVAC mode
+        if hvac_mode == HVACMode.HEAT:
+            self._attr_preset_modes = ["heat", "floor_heat", "heat_floorheat"]
+            # If current preset is not valid for HEAT mode, set to "heat_floorheat"
+            if self._attr_preset_mode not in ["heat", "floor_heat", "heat_floorheat"]:
+                self._attr_preset_mode = "heat_floorheat"
+        else:
+            self._attr_preset_modes = ["none"]
+            self._attr_preset_mode = "none"
 
         await self._device.set_dps(payload)
     
@@ -136,6 +158,7 @@ class LocaltuyaClimate(LocalTuyaEntity, ClimateEntity):
  
     async def async_turn_off(self) -> None:
         """Turn the entity off."""
+        self._attr_preset_mode = "none"
         await self._device.set_dp(False, self._dp_id)
 
     def status_updated(self):
@@ -149,17 +172,24 @@ class LocaltuyaClimate(LocalTuyaEntity, ClimateEntity):
 
         if switch:
             self._attr_hvac_mode = find_mode_key(mode)
+            # Update preset modes based on HVAC mode
+            if self._attr_hvac_mode == HVACMode.HEAT:
+                self._attr_preset_modes = ["heat", "floor_heat", "heat_floorheat"]
+                # Map device mode to preset mode only when device is on
+                if mode == "hot":
+                    self._attr_preset_mode = "heat"
+                elif mode == "floor_heat":
+                    self._attr_preset_mode = "floor_heat"
+                elif mode == "heat_floorheat":
+                    self._attr_preset_mode = "heat_floorheat"
+                else:
+                    self._attr_preset_mode = "heat_floorheat"
+            else:
+                self._attr_preset_modes = ["none"]
+                self._attr_preset_mode = "none"
         else:
             self._attr_hvac_mode = HVACMode.OFF
-
-        # Map device mode to preset mode
-        if mode == "hot":
-            self._attr_preset_mode = "heat"
-        elif mode == "floor_heat":
-            self._attr_preset_mode = "floor_heat"
-        elif mode == "heat_floorheat":
-            self._attr_preset_mode = "heat_floorheat"
-        else:
+            self._attr_preset_modes = ["none"]
             self._attr_preset_mode = "none"
 
         self._attr_target_temperature = temp_set
