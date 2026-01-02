@@ -24,16 +24,20 @@ _LOGGER = logging.getLogger(__name__)
 ModeMap = {
     HVACMode.HEAT: "hot",
     HVACMode.COOL: "cold",
-    HVACMode.AUTO: "heat_floorheat",
-    HVACMode.HEAT_COOL: "floor_heat",
     HVACMode.FAN_ONLY: "wind",
 }
 
+# Mapping from device mode values to HA HVAC modes
+DeviceToHvacMap = {
+    "hot": HVACMode.HEAT,
+    "cold": HVACMode.COOL,
+    "heat_floorheat": HVACMode.HEAT,
+    "floor_heat": HVACMode.HEAT,
+    "wind": HVACMode.FAN_ONLY,
+}
+
 def find_mode_key(value):
-    for key, val in ModeMap.items():
-        if val == value:
-            return key
-    return HVACMode.COOL
+    return DeviceToHvacMap.get(value, HVACMode.COOL)
 
 IDX_SWITCH = 1
 IDX_MODE = 2
@@ -41,6 +45,7 @@ IDX_TEMP_SET = 16
 IDX_TEMP_CURRENT = 24
 IDX_LEVEL = 28
 IDX_HUMIDITY = 34
+IDX_PRESET = 101  # Preset mode for floor heating subtypes
 
 def flow_schema(dps):
     """Return schema used in config flow."""
@@ -63,16 +68,19 @@ class LocaltuyaClimate(LocalTuyaEntity, ClimateEntity):
         self._attr_supported_features = (
             ClimateEntityFeature.TARGET_TEMPERATURE |
             ClimateEntityFeature.FAN_MODE |
+            ClimateEntityFeature.PRESET_MODE |
             ClimateEntityFeature.TURN_OFF |
             ClimateEntityFeature.TURN_ON
         )
         self._attr_temperature_unit = UnitOfTemperature.CELSIUS
-        self._attr_hvac_modes = [HVACMode.OFF, HVACMode.HEAT, HVACMode.COOL, HVACMode.AUTO, HVACMode.HEAT_COOL, HVACMode.FAN_ONLY]
+        self._attr_hvac_modes = [HVACMode.OFF, HVACMode.HEAT, HVACMode.COOL, HVACMode.FAN_ONLY]
+        self._attr_preset_modes = ["none", "heat", "floor_heat", "heat_floorheat"]
         self._attr_target_temperature_step = PRECISION_HALVES
         self._attr_precision = PRECISION_TENTHS
         self._attr_fan_modes = ['1', '2', '3', '4', '5', 'auto']
         self._attr_min_temp = 15
         self._attr_max_temp = 40
+        self._attr_preset_mode = "none"
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set new target temperatures."""
@@ -106,6 +114,22 @@ class LocaltuyaClimate(LocalTuyaEntity, ClimateEntity):
         }
         await self._device.set_dps(payload)
 
+    async def async_set_preset_mode(self, preset_mode: str) -> None:
+        """Set new preset mode."""
+        self._attr_preset_mode = preset_mode
+        payload = {}
+        if preset_mode == "none":
+            # Default to "hot" when no preset is selected
+            payload[str(IDX_MODE)] = "hot"
+        elif preset_mode == "heat":
+            payload[str(IDX_MODE)] = "hot"
+        elif preset_mode == "floor_heat":
+            payload[str(IDX_MODE)] = "floor_heat"
+        elif preset_mode == "heat_floorheat":
+            payload[str(IDX_MODE)] = "heat_floorheat"
+
+        await self._device.set_dps(payload)
+
     async def async_turn_on(self) -> None:
         """Turn the entity on."""
         await self._device.set_dp(True, self._dp_id)
@@ -127,7 +151,17 @@ class LocaltuyaClimate(LocalTuyaEntity, ClimateEntity):
             self._attr_hvac_mode = find_mode_key(mode)
         else:
             self._attr_hvac_mode = HVACMode.OFF
-        
+
+        # Map device mode to preset mode
+        if mode == "hot":
+            self._attr_preset_mode = "heat"
+        elif mode == "floor_heat":
+            self._attr_preset_mode = "floor_heat"
+        elif mode == "heat_floorheat":
+            self._attr_preset_mode = "heat_floorheat"
+        else:
+            self._attr_preset_mode = "none"
+
         self._attr_target_temperature = temp_set
         self._attr_current_temperature = temp_cur
         self._attr_fan_mode = level
